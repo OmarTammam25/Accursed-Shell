@@ -2,9 +2,11 @@
 #include <stdlib.h>  
 #include <unistd.h>
 #include <string.h>
+#include <signal.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <sys/resource.h>
 #include <pwd.h>
 
 #define TOKENIZERS " \t\n"
@@ -26,8 +28,11 @@ enum commands {cd, echo, export, exitEnum};
 char* parseInput(){
     char* userInput = NULL;
     long unsigned MAX_SIZE = 0; // to make the getline() function dynamically allocate space for us
-    if(getline(&userInput, &MAX_SIZE, stdin) == -1) // error happened while taking input
-            exit(EXIT_FAILURE);
+    if(getline(&userInput, &MAX_SIZE, stdin) == -1) { // error happened while taking input
+        perror("Couldn't parse input");
+        exit(EXIT_FAILURE);
+    }
+
 
     return userInput;
 }
@@ -59,9 +64,23 @@ char** createArguments(char* userInput, char* tokenizers){
 }
 
 void dynamicAllocationError(){
-    printf("ALLOCATION ERROR\n");
+    perror("ALLOCATION ERROR");
     exit(EXIT_FAILURE);
 }
+
+void evaluateExpression(char** userArguments){
+    for(int i = 1; userArguments[i] != NULL; i++){
+        char* it = strchr(userArguments[i], '$');
+        if(it != NULL){
+            char* temp = userArguments[i];
+            temp++;
+            userArguments[i] = getenv(temp);
+        }else{
+            perror("Couldn't find environment variable");
+        }
+    }
+}
+
 
 void execute_shell_builtin(char* userInput, char** userArguments, enum commands c){
     switch (c)
@@ -76,10 +95,10 @@ void execute_shell_builtin(char* userInput, char** userArguments, enum commands 
         command_export(userArguments);
         break;
     case exitEnum:
-        printf("exit called");
-        break;
+        exit(EXIT_SUCCESS);
+        break; 
     default:
-        printf("command not found\n");
+        perror("command not found");
         break;
     }
 }
@@ -88,6 +107,25 @@ void command_cd(char* userArguments){
         userArguments = getenv("HOME");
     }
     chdir(userArguments);
+}
+
+void command_echo(char** userArguments){
+    int it = 1;
+    while (userArguments[it] != NULL)
+    {
+        int j = 0;
+        char* stringRefactored = malloc(sizeof(char) * TOKEN_SIZE);
+        int loc = 0;
+        while(userArguments[it][j] != '\0'){
+            if(userArguments[it][j] != '\"')
+                stringRefactored[loc++] = userArguments[it][j];
+            j++;
+        }
+        stringRefactored[loc] = '\0';
+        printf("%s ", stringRefactored);
+        it++;
+    }
+    printf("\n");
 }
 
 void command_export(char** userArguments){
@@ -117,38 +155,6 @@ void command_export(char** userArguments){
         char** myArguments = createArguments(userArguments[1], "=");
         setenv(myArguments[0], newArgument, 1);
     }
-    // if(myArguments[1] != NULL){
-    //     int loc = 0;
-    //     int i = 1;
-    //     while(myArguments[i] != NULL){
-    //         int j = 0;
-    //         while(myArguments[i][j] != NULL){
-    //             if(myArguments[i][j] != '\"'){
-    //                 newArgument[loc++] = myArguments[i][j];
-    //             }
-    //             j++;
-    //         }
-    //         i++;
-    //     }
-}
-
-void command_echo(char** userArguments){
-    int it = 1;
-    while (userArguments[it] != NULL)
-    {
-        int j = 0;
-        char* stringRefactored = malloc(sizeof(char) * TOKEN_SIZE);
-        int loc = 0;
-        while(userArguments[it][j] != '\0'){
-            if(userArguments[it][j] != '\"')
-                stringRefactored[loc++] = userArguments[it][j];
-            j++;
-        }
-        stringRefactored[loc] = '\0';
-        printf("%s ", stringRefactored);
-        it++;
-    }
-    printf("\n");
 }
 
 char** checkForSpace(char** args){
@@ -185,34 +191,47 @@ void execute_command(char* userInput, char** userArguments){
     pid_t pid = fork();
     // printf("HEYEYYYY %s", userArguments[1]);
     if (pid < 0){
-        printf("Error occurred\n");
+        perror("couldn't spawn child proccess");
         exit(EXIT_FAILURE);
     }else if(pid == 0){
         char** args = checkForSpace(userArguments);
-        execvp(userInput, args);
+        if(execvp(userInput, args) == -1){
+            perror("Command not found");
+            exit(EXIT_FAILURE);
+        }
         exit(EXIT_SUCCESS);
-    }else{
+    }else if(!(userArguments[1] != NULL && userArguments[1][0] == '&')){
+        // printf("hahahh %s", userArguments[1]);
         int status;
         waitpid(pid, &status, WUNTRACED);
     }
 }
 
-void evaluateExpression(char** userArguments){
-    for(int i = 1; userArguments[i] != NULL; i++){
-        char* it = strchr(userArguments[i], '$');
-        if(it != NULL){
-            char* temp = userArguments[i];
-            temp++;
-            userArguments[i] = getenv(temp);
-        }   
-    }
-}
+// void proc_exit()
+// {
+// 		int wstat;
+// 		union wait wstat;
+// 		pid_t	pid;
+
+// 		while (1) {
+// 			pid = wait3 (&wstat, WNOHANG, (struct rusage *)NULL );
+// 			if (pid == 0)
+// 				return;
+// 			else if (pid == -1)
+// 				return;
+// 			else
+// 				printf ("Return code: %d\n", wstat.w_retcode);
+// 		}
+// }
 
 void shell(){
-    char* userInput;
 
     do
     {
+        char* userInput;
+        // signal (SIGCHLD, proc_exit);
+        signal(SIGCHLD, SIG_IGN); // reaps zombie processes
+
         char directoryPath[MAX_DIRECTORY_PATH_SIZE];
         getcwd(directoryPath, (size_t)MAX_DIRECTORY_PATH_SIZE);
         printf("%s: ", directoryPath);
@@ -229,8 +248,6 @@ void shell(){
         }
         if(!isBuiltInCommand)
             execute_command(userInput, userArguments);
-
-       
 
     } while (1);
 }

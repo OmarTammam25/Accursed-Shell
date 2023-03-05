@@ -15,6 +15,16 @@
 #define MAX_DIRECTORY_PATH_SIZE 100
 #define LEN(arr) ((int) (sizeof (arr) / sizeof (arr)[0]))
 
+// colors
+#define AC_BLACK "\x1b[30m"
+#define AC_RED "\x1b[31m"
+#define AC_GREEN "\x1b[32m"
+#define AC_YELLOW "\x1b[33m"
+#define AC_BLUE "\x1b[34m"
+#define AC_MAGENTA "\x1b[35m"
+#define AC_CYAN "\x1b[36m"
+#define AC_WHITE "\x1b[37m"
+#define AC_NORMAL "\x1b[m"
 
 char* builtInCommands[] = {
     "cd",
@@ -24,6 +34,55 @@ char* builtInCommands[] = {
 };
 enum commands {cd, echo, export, exitEnum};
 
+void shell();
+char* parseInput();
+char** createArguments(char* userInput, char* tokenizers);
+void dynamicAllocationError();
+void evaluateExpression(char** userArguments);
+
+void execute_command(char* userInput, char** userArguments);
+
+void execute_shell_builtin(char* userInput, char** userArguments, enum commands c);
+void command_cd(char* userArguments);
+void command_echo(char** userArguments); 
+void command_export(char** userArguments);
+
+char** checkForSpace(char** args);
+
+
+int main(){
+    printf("\t\t\t%sWELCOME TO ACCURSED SHELL!%s\n\n", AC_MAGENTA, AC_NORMAL);
+    shell();
+}
+
+void shell(){
+
+    do
+    {
+        char* userInput;
+        // signal (SIGCHLD, proc_exit);
+        signal(SIGCHLD, SIG_IGN); // reaps zombie processes
+
+        char directoryPath[MAX_DIRECTORY_PATH_SIZE];
+        getcwd(directoryPath, (size_t)MAX_DIRECTORY_PATH_SIZE);
+        printf("%s%s%s:$ ",AC_GREEN ,directoryPath, AC_NORMAL);
+
+        userInput = parseInput();
+        char** userArguments = createArguments(userInput, TOKENIZERS);
+        evaluateExpression(userArguments);
+        int isBuiltInCommand = 0; 
+        for(int i = 0; i < BUILT_IN_COMMANDS_SIZE; i++){
+            if(strcmp(userInput, builtInCommands[i]) == 0){
+                isBuiltInCommand = 1;
+                execute_shell_builtin(userInput, userArguments, i);
+            }
+        }
+        if(!isBuiltInCommand)
+            execute_command(userInput, userArguments);
+
+    } while (1);
+}
+
 // takes input from user
 char* parseInput(){
     char* userInput = NULL;
@@ -32,7 +91,6 @@ char* parseInput(){
         perror("Couldn't parse input");
         exit(EXIT_FAILURE);
     }
-
 
     return userInput;
 }
@@ -75,12 +133,27 @@ void evaluateExpression(char** userArguments){
             char* temp = userArguments[i];
             temp++;
             userArguments[i] = getenv(temp);
-        }else{
-            perror("Couldn't find environment variable");
         }
     }
 }
 
+void execute_command(char* userInput, char** userArguments){
+    pid_t pid = fork();
+    if (pid < 0){
+        perror("couldn't spawn child proccess");
+        exit(EXIT_FAILURE);
+    }else if(pid == 0){
+        char** args = checkForSpace(userArguments);
+        if(execvp(userInput, args) == -1){
+            perror("Command not found");
+            exit(EXIT_FAILURE);
+        }
+        exit(EXIT_SUCCESS);
+    }else if(!(userArguments[1] != NULL && userArguments[1][0] == '&')){
+        int status;
+        waitpid(pid, &status, WUNTRACED);
+    }
+}
 
 void execute_shell_builtin(char* userInput, char** userArguments, enum commands c){
     switch (c)
@@ -102,6 +175,7 @@ void execute_shell_builtin(char* userInput, char** userArguments, enum commands 
         break;
     }
 }
+
 void command_cd(char* userArguments){
     if(!userArguments || strcmp(userArguments, "~") == 0){
         userArguments = getenv("HOME");
@@ -151,7 +225,6 @@ void command_export(char** userArguments){
         }
         
         newArgument[loc-1]= '\0';
-        // char** temp = createArguments(myArguments[1], "\"");
         char** myArguments = createArguments(userArguments[1], "=");
         setenv(myArguments[0], newArgument, 1);
     }
@@ -187,25 +260,6 @@ char** checkForSpace(char** args){
     return args2;
 }
 
-void execute_command(char* userInput, char** userArguments){
-    pid_t pid = fork();
-    // printf("HEYEYYYY %s", userArguments[1]);
-    if (pid < 0){
-        perror("couldn't spawn child proccess");
-        exit(EXIT_FAILURE);
-    }else if(pid == 0){
-        char** args = checkForSpace(userArguments);
-        if(execvp(userInput, args) == -1){
-            perror("Command not found");
-            exit(EXIT_FAILURE);
-        }
-        exit(EXIT_SUCCESS);
-    }else if(!(userArguments[1] != NULL && userArguments[1][0] == '&')){
-        // printf("hahahh %s", userArguments[1]);
-        int status;
-        waitpid(pid, &status, WUNTRACED);
-    }
-}
 
 // void proc_exit()
 // {
@@ -223,37 +277,3 @@ void execute_command(char* userInput, char** userArguments){
 // 				printf ("Return code: %d\n", wstat.w_retcode);
 // 		}
 // }
-
-void shell(){
-
-    do
-    {
-        char* userInput;
-        // signal (SIGCHLD, proc_exit);
-        signal(SIGCHLD, SIG_IGN); // reaps zombie processes
-
-        char directoryPath[MAX_DIRECTORY_PATH_SIZE];
-        getcwd(directoryPath, (size_t)MAX_DIRECTORY_PATH_SIZE);
-        printf("%s: ", directoryPath);
-
-        userInput = parseInput();
-        char** userArguments = createArguments(userInput, TOKENIZERS);
-        evaluateExpression(userArguments);
-        int isBuiltInCommand = 0; 
-        for(int i = 0; i < BUILT_IN_COMMANDS_SIZE; i++){
-            if(strcmp(userInput, builtInCommands[i]) == 0){
-                isBuiltInCommand = 1;
-                execute_shell_builtin(userInput, userArguments, i);
-            }
-        }
-        if(!isBuiltInCommand)
-            execute_command(userInput, userArguments);
-
-    } while (1);
-}
-
-
-int main(){
-    printf("\t\t\tWELCOME TO ACCURSED SHELL!\n");
-    shell();
-}

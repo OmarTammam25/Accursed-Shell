@@ -4,9 +4,10 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/types.h>
+#include <sys/time.h>
+#include <sys/resource.h>
 #include <sys/wait.h>
 #include <sys/types.h>
-#include <sys/resource.h>
 #include <pwd.h>
 
 #define TOKENIZERS " \t\n"
@@ -35,6 +36,8 @@ char* builtInCommands[] = {
 enum commands {cd, echo, export, exitEnum};
 
 void shell();
+void logger();
+void proc_exit();
 char* parseInput();
 char** createArguments(char* userInput, char* tokenizers);
 void dynamicAllocationError();
@@ -57,19 +60,23 @@ int main(){
 
 void shell(){
 
+    FILE *fp = fopen("logs.txt", "w");
+    fclose(fp);
     do
     {
         char* userInput;
-        // signal (SIGCHLD, proc_exit);
-        signal(SIGCHLD, SIG_IGN); // reaps zombie processes
+
+        signal(SIGCHLD, SIG_IGN);
 
         char directoryPath[MAX_DIRECTORY_PATH_SIZE];
         getcwd(directoryPath, (size_t)MAX_DIRECTORY_PATH_SIZE);
         printf("%s%s%s:$ ",AC_GREEN ,directoryPath, AC_NORMAL);
 
         userInput = parseInput();
-        char** userArguments = createArguments(userInput, TOKENIZERS);
-        evaluateExpression(userArguments);
+        char** userArguments; 
+        userArguments = createArguments(userInput, TOKENIZERS);
+        if(userArguments != NULL)
+            evaluateExpression(userArguments);
         int isBuiltInCommand = 0; 
         for(int i = 0; i < BUILT_IN_COMMANDS_SIZE; i++){
             if(strcmp(userInput, builtInCommands[i]) == 0){
@@ -83,15 +90,45 @@ void shell(){
     } while (1);
 }
 
+void proc_exit()
+{
+    pid_t pid;
+    int status;
+    int wstat;
+
+         while(1)
+        {
+            pid = wait3(&wstat,WNOHANG,(struct rusage *)NULL);
+            logger();
+            if(pid == 0 ){
+                return 0;
+            }
+            else if(pid == -1)
+                return -1;
+            else
+            {
+                // deleteJob(pid);
+                return;
+            }
+        }
+
+}
+
+void logger(){
+    FILE *fp = fopen("logs.txt", "a");
+    fprintf(fp, "Child process was terminated\n");
+    fclose(fp);
+}
+
 // takes input from user
 char* parseInput(){
     char* userInput = NULL;
     long unsigned MAX_SIZE = 0; // to make the getline() function dynamically allocate space for us
-    if(getline(&userInput, &MAX_SIZE, stdin) == -1) { // error happened while taking input
+    if(getline(&userInput, &MAX_SIZE, stdin) == -1 || userInput == NULL) { // error happened while taking input
         perror("Couldn't parse input");
         exit(EXIT_FAILURE);
     }
-
+    
     return userInput;
 }
 
@@ -127,7 +164,9 @@ void dynamicAllocationError(){
 }
 
 void evaluateExpression(char** userArguments){
-    for(int i = 1; userArguments[i] != NULL; i++){
+    if(userArguments == NULL)
+        return;
+    for(int i = 1; userArguments[i] != NULL && i <= 1; i++){
         char* it = strchr(userArguments[i], '$');
         if(it != NULL){
             char* temp = userArguments[i];
@@ -153,6 +192,7 @@ void execute_command(char* userInput, char** userArguments){
         int status;
         waitpid(pid, &status, WUNTRACED);
     }
+    logger();
 }
 
 void execute_shell_builtin(char* userInput, char** userArguments, enum commands c){
@@ -260,20 +300,3 @@ char** checkForSpace(char** args){
     return args2;
 }
 
-
-// void proc_exit()
-// {
-// 		int wstat;
-// 		union wait wstat;
-// 		pid_t	pid;
-
-// 		while (1) {
-// 			pid = wait3 (&wstat, WNOHANG, (struct rusage *)NULL );
-// 			if (pid == 0)
-// 				return;
-// 			else if (pid == -1)
-// 				return;
-// 			else
-// 				printf ("Return code: %d\n", wstat.w_retcode);
-// 		}
-// }

@@ -51,6 +51,7 @@ void command_echo(char** userArguments);
 void command_export(char** userArguments);
 
 char** checkForSpace(char** args);
+int getNumOfArguments(char** args);
 
 
 int main(){
@@ -62,11 +63,11 @@ void shell(){
 
     FILE *fp = fopen("logs.txt", "w");
     fclose(fp);
+    signal(SIGCHLD, proc_exit);
     do
     {
-        char* userInput;
 
-        signal(SIGCHLD, SIG_IGN);
+        char* userInput;
 
         char directoryPath[MAX_DIRECTORY_PATH_SIZE];
         getcwd(directoryPath, (size_t)MAX_DIRECTORY_PATH_SIZE);
@@ -75,8 +76,8 @@ void shell(){
         userInput = parseInput();
         char** userArguments; 
         userArguments = createArguments(userInput, TOKENIZERS);
-        if(userArguments != NULL)
-            evaluateExpression(userArguments);
+        evaluateExpression(userArguments);
+
         int isBuiltInCommand = 0; 
         for(int i = 0; i < BUILT_IN_COMMANDS_SIZE; i++){
             if(strcmp(userInput, builtInCommands[i]) == 0){
@@ -95,23 +96,14 @@ void proc_exit()
     pid_t pid;
     int status;
     int wstat;
+    int flag = 0;
+    while((pid = waitpid(-1, &status, WNOHANG|WUNTRACED)) > 0){
+        flag = 1;
+        logger();
 
-         while(1)
-        {
-            pid = wait3(&wstat,WNOHANG,(struct rusage *)NULL);
-            logger();
-            if(pid == 0 ){
-                return 0;
-            }
-            else if(pid == -1)
-                return -1;
-            else
-            {
-                // deleteJob(pid);
-                return;
-            }
-        }
-
+    }
+    if(!flag)
+        logger();
 }
 
 void logger(){
@@ -164,7 +156,7 @@ void dynamicAllocationError(){
 }
 
 void evaluateExpression(char** userArguments){
-    if(userArguments == NULL)
+    if(getNumOfArguments(userArguments) == 0 || getNumOfArguments(userArguments) == 3)
         return;
     for(int i = 1; userArguments[i] != NULL && i <= 1; i++){
         char* it = strchr(userArguments[i], '$');
@@ -192,7 +184,7 @@ void execute_command(char* userInput, char** userArguments){
         int status;
         waitpid(pid, &status, WUNTRACED);
     }
-    logger();
+    // logger();
 }
 
 void execute_shell_builtin(char* userInput, char** userArguments, enum commands c){
@@ -298,5 +290,18 @@ char** checkForSpace(char** args){
         i++;
     }
     return args2;
+}
+
+int getNumOfArguments(char** userArguments){
+    int counter = 0;
+    if(userArguments == NULL)
+        return 0;
+    char** it =  userArguments;
+    while (*it != NULL)
+    {
+        counter++;
+        it++;
+    }
+   return counter-1;   
 }
 
